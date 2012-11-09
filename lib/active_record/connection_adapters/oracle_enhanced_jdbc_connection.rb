@@ -19,7 +19,9 @@ begin
     # Look for JDBC driver at first in lib subdirectory (application specific JDBC file version)
     # then in Ruby load path and finally in environment PATH
     if ojdbc_jar_path = ['./lib'].concat($LOAD_PATH).concat(env_path).find{|d| File.exists?(File.join(d,ojdbc_jar))}
-      require File.join(ojdbc_jar_path,ojdbc_jar)
+      require File.join(ojdbc_jar_path, ojdbc_jar)
+      require File.join(ojdbc_jar_path, 'jts-1.8.jar')
+      require File.join(ojdbc_jar_path, 'jtsio-1.8.jar')
     end
   end
 
@@ -86,7 +88,7 @@ module ActiveRecord
             @raw_connection = @raw_connection.innermost_delegate
           elsif @raw_connection.respond_to?(:getUnderlyingConnection)
             @pooled_connection = @raw_connection
-            @raw_connection = @raw_connection.underlying_connection            
+            @raw_connection = @raw_connection.underlying_connection
           end
 
           config[:driver] ||= @raw_connection.meta_data.connection.java_class.name
@@ -285,7 +287,7 @@ module ActiveRecord
             # else
             #   nil
             # end
-            
+
             # Workaround with CallableStatement
             s = @raw_connection.prepareCall("BEGIN #{sql}; END;")
             s.registerOutParameter(1, java.sql.Types::BIGINT)
@@ -340,6 +342,10 @@ module ActiveRecord
             # When nils will actually be used by ActiveRecord as bound parameters
             # then need to pass actual column type.
             @raw_statement.setNull(position, java.sql.Types::VARCHAR)
+          when Java::ComVividsolutionsJtsGeom::Geometry
+            writer = Java::com.vividsolutions.jts.io.oracle.OraWriter.new(@connection)
+            struct = java_value && writer.write(java_value)
+            @raw_statement.setObject(position, struct)
           else
             raise ArgumentError, "Don't know how to bind variable with type #{value.class}"
           end
@@ -535,6 +541,12 @@ module ActiveRecord
         when :RAW
           raw_value = rset.getRAW(i)
           raw_value && raw_value.getBytes.to_a.pack('C*')
+        when :"MDSYS.SDO_GEOMETRY"
+          struct = rset.getObject(i)
+          if struct
+            reader = Java::com.vividsolutions.jts.io.oracle.OraReader.new
+            reader.read(struct.to_java(Java::oracle.sql.STRUCT))
+          end
         else
           nil
         end
